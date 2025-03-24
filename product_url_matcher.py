@@ -515,7 +515,24 @@ class ProductUrlMatcher:
             pd.reset_option('display.max_colwidth')
         
         return matches_df
-
+    
+    def get_matched_products_and_urls(self) -> pd.DataFrame:
+        """
+        Get the matched products and URLs after running find_product_url_matches.
+        
+        Returns:
+            pd.DataFrame: DataFrame with products and their matching URLs
+        """
+        if self.matching_df is None or self.matching_df.empty:
+            print("No matches found yet. Run find_product_url_matches() first.")
+            return pd.DataFrame()
+        
+        # Sort by confidence score if available
+        if 'Confidence' in self.matching_df.columns:
+            return self.matching_df.sort_values(by='Confidence', ascending=False)
+        
+        return self.matching_df
+    
     def save_results(self, output_path: str = None) -> None:
         """
         Save the results to CSV files.

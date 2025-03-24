@@ -4,14 +4,18 @@ URL to Text converter using crawl4ai
 
 This script extracts text content from a specified URL and converts it to clean text format,
 removing links, media, and non-essential elements.
-Usage: python url_to_markdown.py <url> [output_file]
+
+Usage: 
+- As standalone: python url_to_markdown.py <url> [output_file]
+- From other modules: import and use extract_products_content
+
 If output_file is not specified, the text content will be printed to stdout.
 """
-
 import asyncio
 import argparse
 import os
 import sys
+import pandas as pd
 from datetime import datetime
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
@@ -94,9 +98,69 @@ def save_text_to_file(text_content, output_file):
         text_content (str): The text content to save
         output_file (str): The file path to save to
     """
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(text_content)
     print(f"Text content saved to {output_file}")
+
+
+async def extract_products_content(products_df, output_dir='content'):
+    """
+    Extract content from product URLs in the dataframe and save it to files.
+    
+    Args:
+        products_df (pd.DataFrame): DataFrame with product URLs and handles
+                                   Must have 'URL' and 'Handle' columns
+        output_dir (str): Directory where content will be saved
+    
+    Returns:
+        list: List of extracted file paths
+    """
+    if not isinstance(products_df, pd.DataFrame):
+        raise ValueError("products_df must be a pandas DataFrame")
+    
+    if 'URL' not in products_df.columns or 'Handle' not in products_df.columns:
+        raise ValueError("DataFrame must contain both 'URL' and 'Handle' columns")
+    
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    extracted_files = []
+    total_products = len(products_df)
+    
+    print(f"Starting extraction of {total_products} products...")
+    
+    for i, (_, row) in enumerate(products_df.iterrows(), 1):
+        url = row['URL']
+        handle = row['Handle']
+        
+        # Sanitize the filename
+        safe_handle = "".join([c if c.isalnum() or c in ['-', '_'] else '_' for c in handle])
+        
+        # Create the output file path
+        output_file = os.path.join(output_dir, f"{safe_handle}.txt")
+        
+        print(f"Processing [{i}/{total_products}]: {handle}")
+        
+        # Extract content from URL
+        result = await extract_text_from_url(url)
+        
+        if result["success"]:
+            # Prepare content with title
+            content = f"# {row.get('Title', handle)}\n\n"
+            content += f"URL: {url}\n\n"
+            content += result["clean_text"]
+            
+            # Save to file
+            save_text_to_file(content, output_file)
+            extracted_files.append(output_file)
+        else:
+            print(f"Failed to extract content from {url}: {result.get('error', 'Unknown error')}")
+    
+    print(f"Completed extraction: {len(extracted_files)}/{total_products} successful")
+    return extracted_files
 
 
 async def main():
