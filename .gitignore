@@ -81,7 +81,7 @@ celerybeat-schedule
 *.sage.py
 
 # Environments
-.env
+
 .venv
 env/
 venv/
@@ -122,3 +122,5 @@ unmatched_products_*.csv
 # crawl4ai documentation
 crawl4ai_docs/
 docs/crawl4ai/
+content/
+content

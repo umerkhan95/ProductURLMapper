@@ -22,6 +22,20 @@ from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from crawl4ai.content_filter_strategy import PruningContentFilter
 
+# Import the OpenAI FAQ generator function
+try:
+    from openai_faq_generator import generate_faq_from_content
+except ImportError:
+    print("Warning: openai_faq_generator module not found. Will save to files instead.")
+    generate_faq_from_content = None
+
+# Import the product updater function
+try:
+    from product_updater import process_product_with_faq
+except ImportError:
+    print("Warning: product_updater module not found. Will not update products.")
+    process_product_with_faq = None
+
 
 async def extract_text_from_url(url, config=None):
     """
@@ -106,17 +120,20 @@ def save_text_to_file(text_content, output_file):
     print(f"Text content saved to {output_file}")
 
 
-async def extract_products_content(products_df, output_dir='content'):
+async def extract_products_content(products_df, output_dir='content', use_openai=True, save_to_file=False):
     """
-    Extract content from product URLs in the dataframe and save it to files.
+    Extract content from product URLs in the dataframe and either save it to files
+    or pass it to OpenAI for FAQ generation and then to product updater for Shopify update.
     
     Args:
         products_df (pd.DataFrame): DataFrame with product URLs and handles
                                    Must have 'URL' and 'Handle' columns
-        output_dir (str): Directory where content will be saved
+        output_dir (str): Directory where content will be saved (if save_to_file=True)
+        use_openai (bool): Whether to pass content to OpenAI for FAQ generation
+        save_to_file (bool): Whether to save content to files
     
     Returns:
-        list: List of extracted file paths
+        list: List of processed products with results
     """
     if not isinstance(products_df, pd.DataFrame):
         raise ValueError("products_df must be a pandas DataFrame")
@@ -124,73 +141,161 @@ async def extract_products_content(products_df, output_dir='content'):
     if 'URL' not in products_df.columns or 'Handle' not in products_df.columns:
         raise ValueError("DataFrame must contain both 'URL' and 'Handle' columns")
     
-    # Create the output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    # Create the output directory if saving to files
+    if save_to_file:
+        os.makedirs(output_dir, exist_ok=True)
     
-    extracted_files = []
+    processed_results = []
     total_products = len(products_df)
     
     print(f"Starting extraction of {total_products} products...")
     
+    # Check if the OpenAI API key is available
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if use_openai and not api_key:
+        print("Warning: OPENAI_API_KEY environment variable is not set.")
+        print("Will save content to files instead of generating FAQs.")
+        use_openai = False
+    
     for i, (_, row) in enumerate(products_df.iterrows(), 1):
         url = row['URL']
         handle = row['Handle']
+        title = row.get('Title', handle)
         
         # Sanitize the filename
         safe_handle = "".join([c if c.isalnum() or c in ['-', '_'] else '_' for c in handle])
         
-        # Create the output file path
-        output_file = os.path.join(output_dir, f"{safe_handle}.txt")
+        print(f"Processing [{i}/{total_products}]: {handle} ({url})")
         
-        print(f"Processing [{i}/{total_products}]: {handle}")
-        
-        # Extract content from URL
-        result = await extract_text_from_url(url)
-        
-        if result["success"]:
+        try:
+            # Extract content from URL
+            result = await extract_text_from_url(url)
+            
+            if not result["success"]:
+                print(f"Failed to extract content from {url}: {result.get('error', 'Unknown error')}")
+                processed_results.append({
+                    "handle": handle,
+                    "url": url,
+                    "success": False,
+                    "error": result.get('error', 'Unknown error')
+                })
+                continue
+            
             # Prepare content with title
-            content = f"# {row.get('Title', handle)}\n\n"
+            content = f"# {title}\n\n"
             content += f"URL: {url}\n\n"
             content += result["clean_text"]
             
-            # Save to file
-            save_text_to_file(content, output_file)
-            extracted_files.append(output_file)
-        else:
-            print(f"Failed to extract content from {url}: {result.get('error', 'Unknown error')}")
+            # Save to file if requested
+            if save_to_file:
+                output_file = os.path.join(output_dir, f"{safe_handle}.txt")
+                save_text_to_file(content, output_file)
+                print(f"  Saved content to {output_file}")
+            
+            # Process with OpenAI if requested and available
+            faq_result = None
+            if use_openai and generate_faq_from_content:
+                try:
+                    print(f"  Generating FAQ for: {handle}")
+                    faq_result = generate_faq_from_content(api_key, content)
+                    
+                    if faq_result.get("error", False):
+                        print(f"  Error generating FAQ: {faq_result.get('message', 'Unknown error')}")
+                        processed_results.append({
+                            "handle": handle,
+                            "url": url,
+                            "content_extracted": True,
+                            "faq_generated": False,
+                            "error": faq_result.get('message', 'Unknown error')
+                        })
+                        continue
+                    
+                    # Process the product with the FAQ result if the function is available
+                    if process_product_with_faq:
+                        print(f"  Updating product in Shopify: {handle}")
+                        update_result = process_product_with_faq(handle, faq_result)
+                        
+                        processed_results.append({
+                            "handle": handle,
+                            "url": url,
+                            "content_extracted": True,
+                            "faq_generated": True,
+                            "product_updated": update_result
+                        })
+                    else:
+                        print(f"  Product updater not available, cannot update Shopify product")
+                        processed_results.append({
+                            "handle": handle,
+                            "url": url,
+                            "content_extracted": True,
+                            "faq_generated": True,
+                            "product_updated": False,
+                            "error": "Product updater not available"
+                        })
+                        
+                except Exception as e:
+                    print(f"  Error in FAQ generation or product update: {str(e)}")
+                    processed_results.append({
+                        "handle": handle,
+                        "url": url,
+                        "content_extracted": True,
+                        "error": str(e)
+                    })
+            else:
+                # If not using OpenAI, just record that we saved the content
+                processed_results.append({
+                    "handle": handle,
+                    "url": url,
+                    "content_extracted": True,
+                    "saved_to_file": save_to_file
+                })
+                
+        except Exception as e:
+            print(f"  Error processing {handle}: {str(e)}")
+            processed_results.append({
+                "handle": handle,
+                "url": url,
+                "success": False,
+                "error": str(e)
+            })
     
-    print(f"Completed extraction: {len(extracted_files)}/{total_products} successful")
-    return extracted_files
+    # Print summary
+    print("\n=== Processing Summary ===")
+    successful = sum(1 for r in processed_results if r.get("content_extracted", False))
+    faq_generated = sum(1 for r in processed_results if r.get("faq_generated", False))
+    product_updated = sum(1 for r in processed_results if r.get("product_updated", False))
+    
+    print(f"Total products: {total_products}")
+    print(f"Successfully extracted content: {successful}")
+    print(f"Generated FAQs: {faq_generated}")
+    print(f"Updated products in Shopify: {product_updated}")
+    
+    return processed_results
 
 
 async def main():
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Extract text content from a URL')
-    parser.add_argument('url', help='URL to extract content from')
-    parser.add_argument('-o', '--output', help='Output file path (if not specified, prints to stdout)')
+    parser = argparse.ArgumentParser(description='Extract text content from a URL and convert it to clean text format.')
+    parser.add_argument('url', type=str, help='The URL to extract content from')
+    parser.add_argument('output_file', type=str, nargs='?', default=None, help='The file path to save the extracted content to')
     args = parser.parse_args()
-    
-    # Extract content
-    print(f"Extracting text content from {args.url}...")
-    result = await extract_text_from_url(args.url)
-    
-    if not result["success"]:
-        print(result["error"], file=sys.stderr)
-        sys.exit(1)
-    
-    # Prepare the content
-    content = result["title"] + result["clean_text"]
-    
-    # Print status
-    print(f"Status code: {result['status_code']}")
-    
-    # Output the content
-    if args.output:
-        save_text_to_file(content, args.output)
-    else:
-        print("\n--- TEXT CONTENT ---\n")
-        print(content)
 
+    if args.output_file:
+        output_dir = os.path.dirname(args.output_file)
+        os.makedirs(output_dir, exist_ok=True)
+
+    result = await extract_text_from_url(args.url)
+
+    if not result["success"]:
+        print(f"Failed to extract content from {args.url}: {result.get('error', 'Unknown error')}")
+        sys.exit(1)
+
+    content = result["title"] + result["clean_text"]
+
+    if args.output_file:
+        save_text_to_file(content, args.output_file)
+    else:
+        print(content)
 
 if __name__ == "__main__":
     asyncio.run(main())
