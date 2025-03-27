@@ -88,6 +88,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env
 
 # Spyder project settings
 .spyderproject
@@ -122,6 +123,10 @@ unmatched_products_*.csv
 # JSON files
 *.json
 output_8hydroxy.json
+
+# Project specific directories
+ory_content/
+backup/
 
 # crawl4ai documentation
 crawl4ai_docs/
