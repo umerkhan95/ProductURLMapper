@@ -119,6 +119,10 @@ all_urls_*.csv
 product_url_matches_*.csv
 unmatched_products_*.csv
 
+# JSON files
+*.json
+output_8hydroxy.json
+
 # crawl4ai documentation
 crawl4ai_docs/
 docs/crawl4ai/
