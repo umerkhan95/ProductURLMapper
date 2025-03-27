@@ -37,6 +37,31 @@ def clean_text(text):
     
     return cleaned_text
 
+# Function to clean heading text from unwanted characters
+def clean_heading(heading):
+    """
+    Clean heading text by removing unwanted characters like quotes and commas.
+    
+    Args:
+        heading: The heading text to clean
+        
+    Returns:
+        Cleaned heading text
+    """
+    if not heading:
+        return heading
+    
+    # Remove trailing commas, quotes, and other unwanted characters
+    heading = re.sub(r'[",\\]+$', '', heading.strip())
+    
+    # Remove leading quotes and other unwanted characters
+    heading = re.sub(r'^[",\\]+', '', heading.strip())
+    
+    # Remove any remaining quotes that might be in the middle or elsewhere
+    heading = heading.replace('"', '').replace('\\', '')
+    
+    return heading.strip()
+
 # Product content for Leber Galle Kur
 product_content = {
     "leber-galle-kur": {
@@ -83,7 +108,7 @@ def update_product_metafields(product_id: int, metafields_data: list) -> bool:
             metafield["value"] = clean_text(metafield["value"])
         
         # Special handling for rich text fields
-        if metafield.get('type') == 'rich_text_field':
+        if metafield.get('type') == 'rich_text':
             url = f"{base_url}/metafields.json"
             
             # For rich text, we need to use a different endpoint and format
@@ -94,7 +119,7 @@ def update_product_metafields(product_id: int, metafields_data: list) -> bool:
                     "namespace": metafield['namespace'],
                     "key": metafield['key'],
                     "value": metafield['value'],
-                    "type": "rich_text"  # API expects "rich_text", not "rich_text_field"
+                    "type": "rich_text"  
                 }
             }
         else:
@@ -199,72 +224,131 @@ def process_product_with_faq(handle, faq_data):
     # Map FAQ data to metafields
     metafields = []
     
-    # Map for direct field names
-    for source_key, target_key in {
-        "usage": "p1",
-        "benefits": "p2",
-        "ingredients": "nhaltsstoffe",
-        "advantages": "vorteile",
-        "application": "anwendung",
-        "delivery": "lieferung"
-    }.items():
-        if source_key in faq_data and faq_data[source_key]:
+    # ========== DYNAMIC HEADINGS AND CONTENT ==========
+    # Handle dynamic headings and their content
+    if 'dynamic_headings' in faq_data and isinstance(faq_data['dynamic_headings'], dict):
+        # Clean heading keys before processing
+        cleaned_headings = {}
+        for heading, content in faq_data['dynamic_headings'].items():
+            cleaned_heading = clean_heading(heading)
+            cleaned_headings[cleaned_heading] = content
+        
+        # Replace original dynamic headings with cleaned ones
+        faq_data['dynamic_headings'] = cleaned_headings
+        
+        headings = list(faq_data['dynamic_headings'].keys())
+        
+        # Heading 1 and p1
+        if len(headings) >= 1:
+            heading1 = headings[0]
+            p1_content = faq_data['dynamic_headings'].get(heading1, "")
+            
+            metafields.append({
+                "namespace": "heading",
+                "key": "tag1",
+                "value": heading1,
+                "type": "single_line_text_field"
+            })
+            
             metafields.append({
                 "namespace": "custom",
-                "key": target_key,
-                "value": faq_data[source_key],
+                "key": "p1",
+                "value": p1_content,
+                "type": "multi_line_text_field"
+            })
+            
+        # Heading 2 and p2
+        if len(headings) >= 2:
+            heading2 = headings[1]
+            p2_content = faq_data['dynamic_headings'].get(heading2, "")
+            
+            metafields.append({
+                "namespace": "heading2",
+                "key": "tag",
+                "value": heading2,
+                "type": "single_line_text_field"
+            })
+            
+            metafields.append({
+                "namespace": "custom",
+                "key": "p2",
+                "value": p2_content,
+                "type": "multi_line_text_field"
+            })
+            
+        # Heading 3 and para3
+        if len(headings) >= 3:
+            heading3 = headings[2]
+            para3_content = faq_data['dynamic_headings'].get(heading3, "")
+            
+            metafields.append({
+                "namespace": "heading3",
+                "key": "tag",
+                "value": heading3,
+                "type": "single_line_text_field"
+            })
+            
+            metafields.append({
+                "namespace": "para3",
+                "key": "tag",
+                "value": para3_content,
+                "type": "multi_line_text_field"
+            })
+            
+        # Heading 4 and para4
+        if len(headings) >= 4:
+            heading4 = headings[3]
+            para4_content = faq_data['dynamic_headings'].get(heading4, "")
+            
+            metafields.append({
+                "namespace": "heading4",
+                "key": "tag",
+                "value": heading4,
+                "type": "single_line_text_field"
+            })
+            
+            metafields.append({
+                "namespace": "para4",
+                "key": "tag",
+                "value": para4_content,
                 "type": "multi_line_text_field"
             })
     
-    # Map for full-named fields as shown in the Shopify interface
-    full_name_mapping = {
-        'ingredients': {
-            'key': 'pd1', 
-            'namespace': 'custom.pd1',
-            'type': 'multi_line_text_field'
+    # ========== PRODUCT DETAILS ==========
+    # Map product details
+    product_details_mapping = {
+        "ingredients": {
+            "namespace": "custom",
+            "key": "pd1",
+            "type": "multi_line_text_field"
         },
-        'delivery': {
-            'key': 'pd2', 
-            'namespace': 'custom.pd2',
-            'type': 'multi_line_text_field'
+        "delivery": {
+            "namespace": "custom",
+            "key": "pd2",
+            "type": "multi_line_text_field"
         },
-        'application': {
-            'key': 'pd3', 
-            'namespace': 'custom.pd3',
-            'type': 'multi_line_text_field'
+        "application": {
+            "namespace": "custom",
+            "key": "pd3",
+            "type": "multi_line_text_field"
         },
-        'advantages': {
-            'key': 'pd4', 
-            'namespace': 'custom.pd4',
-            'type': 'multi_line_text_field'
-        },
+        "advantages": {
+            "namespace": "custom",
+            "key": "pd4",
+            "type": "multi_line_text_field"
+        }
     }
     
-    # Also add simple namespace fields with pd1, pd2, etc. keys
-    for source_key, target_key in {
-        "ingredients": "pd1",
-        "delivery": "pd2",
-        "application": "pd3",
-        "advantages": "pd4"
-    }.items():
+    for source_key, target in product_details_mapping.items():
         if source_key in faq_data and faq_data[source_key]:
             metafields.append({
-                "namespace": "custom",
-                "key": target_key,
+                "namespace": target["namespace"],
+                "key": target["key"],
                 "value": faq_data[source_key],
-                "type": "multi_line_text_field"
+                "type": target["type"]
             })
     
-    # Add fields with full namespaces (custom.pd1, etc.)
-    for source_key, target in full_name_mapping.items():
-        if source_key in faq_data and faq_data[source_key]:
-            metafields.append({
-                "namespace": target['namespace'],
-                "key": target['key'],
-                "value": faq_data[source_key],
-                "type": target['type']
-            })
-    
+    # ========== FAQs ==========
     # Add FAQ answers
     if 'faqs' in faq_data and isinstance(faq_data['faqs'], dict):
         faq_mapping = {

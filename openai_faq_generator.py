@@ -454,6 +454,22 @@ def generate_faq_from_content(api_key: Optional[str], content: str) -> Dict[str,
         "dynamic_headings": {}
     }
     
+    # Get dynamic headings and answers first (top priority)
+    print("\n=== Generating Dynamic Content ===")
+    headings = get_dynamic_headings(client, content)
+    
+    if headings:
+        dynamic_answers = get_dynamic_heading_answers(client, content, headings)
+        # Clean the dynamic answers
+        cleaned_dynamic_answers = {}
+        for heading, answer in dynamic_answers.items():
+            cleaned_dynamic_answers[heading] = clean_response(answer)
+        result["dynamic_headings"] = cleaned_dynamic_answers
+        print(f"✓ Generated {len(cleaned_dynamic_answers)} dynamic answers")
+    else:
+        result["dynamic_headings"] = {}
+        print("✗ Failed to generate dynamic headings")
+    
     # Get product details
     print("\n=== Generating Product Details ===")
     
@@ -585,22 +601,6 @@ def generate_faq_from_content(api_key: Optional[str], content: str) -> Dict[str,
     else:
         result["faqs"]["storage"] = "Bewahren Sie das Testkit an einem kühlen, trockenen Ort bei Temperaturen zwischen 2°C und 25°C auf, geschützt vor direkter Sonneneinstrahlung. Das Produkt darf nicht eingefroren werden. Die Proben sollten nach der Entnahme zeitnah versendet werden, um die Qualität der Ergebnisse zu gewährleisten. Außerhalb der Reichweite von Kindern aufbewahren."
         print("✗ Failed to generate storage FAQ")
-    
-    # Get dynamic headings and answers
-    print("\n=== Generating Dynamic Content ===")
-    headings = get_dynamic_headings(client, content)
-    
-    if headings:
-        dynamic_answers = get_dynamic_heading_answers(client, content, headings)
-        # Clean the dynamic answers
-        cleaned_dynamic_answers = {}
-        for heading, answer in dynamic_answers.items():
-            cleaned_dynamic_answers[heading] = clean_response(answer)
-        result["dynamic_headings"] = cleaned_dynamic_answers
-        print(f"✓ Generated {len(cleaned_dynamic_answers)} dynamic answers")
-    else:
-        result["dynamic_headings"] = {}
-        print("✗ Failed to generate dynamic headings")
     
     print("\n=== Generation Complete ===")
     
